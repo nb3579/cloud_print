@@ -3,3 +3,4 @@ python-docx
 mammoth
 weasyprint
 requests
+pdf2image
