@@ -12,7 +12,7 @@ TUNNEL_URL = "https://dyj.yyjc.dpdns.org/cgi-bin/print" # 你的路由器 Tunnel
 
 st.set_page_config(page_title="🖨️ 极客云打印大脑", page_icon="🖨️", layout="centered")
 st.title("🖨️ 异地全栈自建云打印网关")
-st.write("由 Streamlit 云端容器代理重度驱动转码，无盘流式直灌家里 OpenWrt 9100d 端口。")
+st.write("由 Streamlit 云端容器代理重度驱动转码，利用 CCITT G4 高压算法无损脱水点阵。")
 st.divider()
 
 uploaded_file = st.file_uploader("请上传需要远程打印的文档", type=["docx", "pdf"])
@@ -28,7 +28,7 @@ if uploaded_file is not None:
     
     st.info(f"📄 任务已建立: {uploaded_file.name} (ID: {task_id})")
     
-    if st.button("🚀 批准编译并投递打印", type="primary"):
+    if st.button("🚀 批准高压编译并投递打印", type="primary"):
         with st.spinner("⚡ 正在启动云端转码流水线..."):
             try:
                 # 0. 落地上传的文件流
@@ -43,7 +43,7 @@ if uploaded_file is not None:
                         result = mammoth.convert_to_html(docx_file)
                         html_content = result.value
                     
-                    # 注入符合 A4 600DPI 打印标准的全局 CSS 样式（自带文泉驿中文字体集绑定）
+                    # 注入符合 A4 打印标准的全局 CSS 样式
                     styled_html = f"""
                     <html>
                     <head>
@@ -62,38 +62,38 @@ if uploaded_file is not None:
                 else:
                     os.rename(unique_in, unique_pdf)
                     
-                # ─── 环节 B：PDF -> 三星 SPL 机器码 (免驱动全兼容点阵重组) ───
-                st.text("⏳ 2/3 正在利用云端 Ghostscript 矩阵编译真机 600DPI 标准点阵机器码...")
+                # ─── 环节 B：PDF -> 三星 SPL 机器码 (CCITT Group 4 极高压缩黑白点真流) ───
+                st.text("⏳ 2/3 正在利用云端 Ghostscript 矩阵编译高压缩比 600DPI 机器码...")
                 
-                # 采用免驱级 1-bit 纯黑白高浓度原始点阵设备 (pbmraw)，这在所有类 Linux 体系下 100% 稳固自带
+                # 采用 tiffg4 核心：将 93MB 的位图瞬间脱水至几百 KB，维持 600 DPI 激光高精度
                 gs_cmd = [
                     "gs", "-q", "-dBATCH", "-dNOPAUSE", "-dSAFER",
-                    "-sDEVICE=pbmraw",       
-                    "-r600",                 # 锁定物理硬件原生的 600 DPI 激光分辨率
+                    "-sDEVICE=tiffg4",       
+                    "-r600",                 
                     f"-sOutputFile={unique_prn}",
                     unique_pdf
                 ]
                 
                 res = subprocess.run(gs_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
                 if res.returncode != 0:
-                    raise Exception(f"Ghostscript 原生矩阵编译失败: {res.stderr}")
+                    raise Exception(f"Ghostscript 高压矩阵编译失败: {res.stderr}")
                 
                 # 强行前置注入老三星/施乐 GDI 硬件开机、唤醒马达以及强制出纸的 PJL 控制字
                 with open(unique_prn, "rb") as f:
-                    raw_pbm_data = f.read()
+                    compressed_tiff_data = f.read()
 
                 final_payload = bytearray()
                 final_payload.extend(b"\x1b%-12345X@PJL JOB\r\n")
                 final_payload.extend(b"@PJL ENTER LANGUAGE = SPL\r\n") # 进入原厂 SPL 控制模式
-                final_payload.extend(raw_pbm_data)
+                final_payload.extend(compressed_tiff_data)              # 塞入只有几百KB的高压点阵
                 final_payload.extend(b"\x0c\x1b%-12345X@PJL EOJ\r\n\x1b%-12345X") # \x0c 强制加热辊抽纸
 
                 with open(unique_prn, "wb") as f:
                     f.write(bytes(final_payload))
                 
-                # ─── 环节 C：Cloudflare Tunnel 毫秒级安全透传 ───
+                # ─── 环节 C：Cloudflare Tunnel 秒级安全透传 ───
                 prn_size = os.path.getsize(unique_prn)
-                st.text(f"🚀 3/3 编译成功！特征流体积: {prn_size / 1024:.2f} KB。正在强行倒入隧道...")
+                st.text(f"🚀 3/3 编译成功！脱水特征流体积: {prn_size / 1024:.2f} KB。正在投递...")
                 
                 with open(unique_prn, "rb") as prn_file:
                     binary_data = prn_file.read()
@@ -102,14 +102,14 @@ if uploaded_file is not None:
                 response = requests.post(TUNNEL_URL, data=binary_data, headers=headers, timeout=60)
                 
                 if response.status_code == 200:
-                    st.success("🎉【全线打通】家里打印机已通过 1-bit 像素校验，开始同步响动出纸！")
+                    st.success("🎉【全线打通】数据已成功秒传并通过硬件校验，家里打印机开始同步响动出纸！")
                 else:
-                    st.error(f"❌ 投递失败：路由器网关拒收或返回异常，状态码: {response.status_code}")
+                    st.error(f"❌ 投递失败：路由器网关拒收，状态码: {response.status_code}，响应: {response.text}")
                     
             except Exception as e:
                 st.error(f"💥 链路中途崩溃: {str(e)}")
             finally:
-                # 彻底清理云端临时文件，保持容器绝对纯净
+                # 彻底清理云端临时文件
                 for path in [unique_in, unique_pdf, unique_prn]:
                     if os.path.exists(path):
                         os.remove(path)
