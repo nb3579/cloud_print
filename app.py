@@ -69,7 +69,7 @@ if uploaded_file is not None:
                 gs_cmd = [
                     "gs", "-q", "-dBATCH", "-dNOPAUSE", "-dSAFER",
                     "-sDEVICE=samsunggdi",    
-                    "-r600",                 # 维持 600 DPI 激光高精度
+                    "-r300",                 # 维持 600 DPI 激光高精度
                     f"-sOutputFile={unique_prn}",
                     unique_pdf
                 ]
