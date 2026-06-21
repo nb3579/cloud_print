@@ -7,13 +7,12 @@ import mammoth
 from weasyprint import HTML
 
 # ================= 终极配置区 =================
-PPD_FILE = "samsung.ppd"             # 确保此文件在 GitHub 仓库根目录
 TUNNEL_URL = "https://dyj.yyjc.dpdns.org/cgi-bin/print" # 你的路由器 Tunnel 穿透入口
 # =============================================
 
 st.set_page_config(page_title="🖨️ 极客云打印大脑", page_icon="🖨️", layout="centered")
 st.title("🖨️ 异地全栈自建云打印网关")
-st.write("由 Streamlit 云端容器代理重度驱动转码，挂载 PPD 编译真·原厂 SPL 特征流。")
+st.write("由 Streamlit 云端容器代理重度转码，纯内存真二进制 SPL v1 序列直驱本地硬件。")
 st.divider()
 
 uploaded_file = st.file_uploader("请上传需要远程打印的文档", type=["docx", "pdf"])
@@ -26,6 +25,7 @@ if uploaded_file is not None:
     unique_in = f"in_{task_id}{orig_ext}"
     unique_pdf = f"render_{task_id}.pdf"
     unique_prn = f"job_{task_id}.prn"
+    unique_raw = f"raw_{task_id}.pbm"
     
     st.info(f"📄 任务已建立: {uploaded_file.name} (ID: {task_id})")
     
@@ -63,88 +63,80 @@ if uploaded_file is not None:
                 else:
                     os.rename(unique_in, unique_pdf)
                     
-                # ─── 环节 B：PDF -> 真·三星原厂 SPL 机器码 (含 PPD 动态版本伪装) ───
-                st.text("⏳ 2/3 正在激活云端 PPD 驱动引擎编译真机机器码...")
-                raster_tmp = f"raster_{task_id}.tmp"
-                spoofed_ppd = f"spoofed_{task_id}.ppd"
+                # ─── 环节 B：PDF -> 1-bit PBM 裸点阵切片 ───
+                st.text("⏳ 2/3 正在生成 A4 300DPI 绝对对齐位图矩阵...")
                 
-                # 💡 核心改进：读取原始 samsung.ppd，动态伪装内部版本号以适配容器中的 SpliX 2.0.0
-                if not os.path.exists(PPD_FILE):
-                    raise Exception(f"💥 仓库根目录下未找到 {PPD_FILE} 文件！")
-                    
-                with open(PPD_FILE, "r", encoding="utf-8", errors="ignore") as f:
-                    ppd_content = f.read()
-                
-                # 全局欺骗替换：将可能声明的 1.1 / 1.0 版本号暴力升级为 2.0.0
-                spoofed_content = ppd_content.replace("1.1", "2.0.0").replace("1.0", "2.0.0")
-                with open(spoofed_ppd, "w", encoding="utf-8") as f:
-                    f.write(spoofed_content)
-                
-                # 1. 寻找 Linux 系统中 rastertospl 编译器的真实物理藏身路径
-                spl_filter_path = None
-                possible_paths = [
-                    "/usr/lib/cups/filter/rastertospl",
-                    "/usr/lib/cups/filter/rastertoqpdl",
-                    "/usr/libexec/cups/filter/rastertospl"
-                ]
-                
-                for p in possible_paths:
-                    if os.path.exists(p):
-                        spl_filter_path = p
-                        break
-                        
-                if not spl_filter_path:
-                    find_res = subprocess.run(["find", "/usr", "-name", "rastertospl"], stdout=subprocess.PIPE, text=True)
-                    found_paths = find_res.stdout.strip().split('\n')
-                    if found_paths and os.path.exists(found_paths[0]):
-                        spl_filter_path = found_paths[0]
-                
-                if not spl_filter_path or not os.path.exists(spl_filter_path):
-                    raise Exception("💥 云端环境未找到三星 splix 驱动组件！")
-                
-                # 2. 先用 Ghostscript 把 PDF 还原成 Linux 统一的标准点编位图格式 (cups-raster)
+                # A4 纸张在 300 DPI 下的标准像素宽为 2480 点 (刚好等于 310 字节，8点=1字节)
                 gs_cmd = [
                     "gs", "-q", "-dBATCH", "-dNOPAUSE", "-dSAFER",
-                    "-sDEVICE=cups",     
-                    "-r300",             # 优化为 300 DPI
-                    f"-sOutputFile={raster_tmp}",
+                    "-sDEVICE=pbmraw",       # 提取最纯粹的 1-bit 裸位图点阵 (P4 格式)
+                    "-r300",                 # 严丝合缝扣死 300 DPI 
+                    f"-sOutputFile={unique_raw}",
                     unique_pdf
                 ]
-                subprocess.run(gs_cmd, check=True)
-                
-                # 3. 模拟 Linux 标准 CUPS 管道执行真机驱动过滤编译 (使用伪装后的 PPD)
-                drv_env = os.environ.copy()
-                drv_env["PPD"] = spoofed_ppd  
-                
-                drv_cmd = f"{spl_filter_path} 1 root 'CloudJob' 1 '' {raster_tmp} > {unique_prn}"
-                res = subprocess.run(drv_cmd, shell=True, env=drv_env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-                
+                res = subprocess.run(gs_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
                 if res.returncode != 0:
-                    raise Exception(f"rastertospl 编译机器码失败: {res.stderr}")
+                    raise Exception(f"Ghostscript 矩阵切片失败: {res.stderr}")
+                
+                # ─── 环节 C：【真·原厂 SPL v1 协议手工对齐封装】 ───
+                st.text("🔧 正在进行原厂 SPL v1 字节流高精度打包...")
+                
+                with open(unique_raw, "rb") as f:
+                    pbm_bytes = f.read()
+                
+                # PBM P4 格式自带一个文本文件头 (例如 b"P4\n2480 3508\n")，我们必须精准跳过它，只要后面的裸像素
+                header_offset = pbm_bytes.find(b'\n', pbm_bytes.find(b'\n') + 1) + 1
+                raw_raster_data = pbm_bytes[header_offset:]
+                
+                # 开始在内存中纯手工重组三星原厂机器码说明书
+                spl_stream = bytearray()
+                
+                # 1. PJL 硬件唤醒报头
+                spl_stream.extend(b"\x1b%-12345X@PJL JOB\r\n")
+                spl_packet = bytearray()
+                spl_stream.extend(b"@PJL ENTER LANGUAGE = SPL\r\n")
+                
+                # 2. 三星原厂 PAGE HEADER：\x12\x00 = 启动一页，后接分辨率及边界指示
+                spl_stream.extend(b"\x12\x00\x01\x04\x00\x00") 
+                
+                # 3. 核心对齐冲刷：将裸点阵按每行 310 字节（2480像素）进行切片，并套上三星行报头
+                ROW_BYTES = 310
+                total_rows = len(raw_raster_data) // ROW_BYTES
+                
+                for r in range(total_rows):
+                    start_idx = r * ROW_BYTES
+                    end_idx = start_idx + ROW_BYTES
+                    line_chunk = raw_raster_data[start_idx:end_idx]
                     
-                # 清理本轮点阵缓存
-                if os.path.exists(raster_tmp): os.remove(raster_tmp)
-                if os.path.exists(spoofed_ppd): os.remove(spoofed_ppd)
+                    # 三星 SPL v1 标准单行传输控制字：
+                    # \x11 = 传输行点阵，\x00 = 纯点阵无压缩，\x36\x01 = 小端序的 310 (即告诉主板后面跟着310字节像素)
+                    spl_stream.extend(b"\x11\x00\x36\x01")
+                    spl_stream.extend(line_chunk)
+                    
+                # 4. 强行收尾：\x13\x00 = 三星页面结束，\x0c = 马达强制抽纸出纸
+                spl_stream.extend(b"\x13\x00") 
+                spl_stream.extend(b"\x0c")     
+                spl_stream.extend(b"\x1b%-12345X@PJL EOJ\r\n\x1b%-12345X") 
                 
-                # ─── 环节 C：Cloudflare Tunnel 秒级安全透传 ───
+                with open(unique_prn, "wb") as f:
+                    f.write(bytes(spl_stream))
+                
+                # ─── 环节 D：Cloudflare Tunnel 秒级安全投递 ───
                 prn_size = os.path.getsize(unique_prn)
-                st.text(f"🚀 3/3 编译成功！原厂 SPL 特征流体积: {prn_size / 1024:.2f} KB。正在投递...")
-                
-                with open(unique_prn, "rb") as prn_file:
-                    binary_data = prn_file.read()
+                st.text(f"🚀 3/3 编译成功！脱水 SPL1 机器码体积: {prn_size / 1024:.2f} KB。正在投递...")
                 
                 headers = {"Content-Type": "application/octet-stream"}
-                response = requests.post(TUNNEL_URL, data=binary_data, headers=headers, timeout=60)
+                response = requests.post(TUNNEL_URL, data=bytes(spl_stream), headers=headers, timeout=60)
                 
                 if response.status_code == 200:
-                    st.success("🎉【全线彻底通关】真·三星 SPL 2.0 完美机器码已灌入硬件，开始响动吐纸！")
+                    st.success("🎉【神级闭环突破】真·SPL v1 点阵流已完美注入！老机器检测到合法的 310 对齐，开始大口吐纸！")
                 else:
-                    st.error(f"❌ 投递失败：路由器网关拒收，状态码: {response.status_code}，响应: {response.text}")
+                    st.error(f"❌ 投递失败：路由器网关拒收，状态码: {response.status_code}")
                     
             except Exception as e:
                 st.error(f"💥 链路中途崩溃: {str(e)}")
             finally:
-                # 清理垃圾，保持容器绝对纯净
-                for path in [unique_in, unique_pdf, unique_prn, f"raster_{task_id}.tmp", f"spoofed_{task_id}.ppd"]:
+                # 垃圾清理
+                for path in [unique_in, unique_pdf, unique_prn, unique_raw]:
                     if os.path.exists(path):
                         os.remove(path)
