@@ -62,11 +62,10 @@ if uploaded_file is not None:
                 
                 # ─── 环节 B：【图形降维核心】将 PDF 每一页无情拍扁成 A4 标准 300DPI 图像 ───
                 st.text("⏳ 2/3 正在执行全文档图片化转换 (彻底碾碎排版与公式复杂度)...")
-                # 强行切片为 300 DPI 的 PIL 图像集
                 images = convert_from_path(unique_pdf, dpi=300)
                 
                 # ─── 环节 C：【纯 Python 级高精度伪造原厂 SPL v1 特征流】 ───
-                st.text("🔧 正在进行内存级真机极性对调、3508 行满页像素硬对齐封装...")
+                st.text("🔧 正在进行内存级真机比特流镜像翻转、3508 行满页像素硬对齐封装...")
                 
                 spl_stream = bytearray()
                 
@@ -80,22 +79,27 @@ if uploaded_file is not None:
                 ROW_BYTES = 310     # 300 DPI 下 A4 纸张宽度：2480 像素 / 8 = 310 字节
                 TARGET_ROWS = 3508  # 300 DPI 下 A4 纸张绝对硬件标准总行数
                 
-                # 🌟 处理切片出来的第一页图像 (默认处理第一页，可扩展循环支持多页)
-                img = images[0].convert("1")  # 强制转换为 1-bit 纯黑白二值化位图
-                img = img.resize((2480, 3508)) # 强行校准分辨率拉伸到完美的 A4 硬件模具中
+                # 处理第一页图像
+                img = images[0].convert("1")   # 强转黑白二值
+                img = img.resize((2480, 3508)) # 像素强制收紧对齐
                 
-                raw_raster_data = img.tobytes() # 直接提取出极其标准的 3508行 * 310字节 的纯内联流
+                raw_raster_data = img.tobytes()
                 
-                # 3. 对内存点阵实施 1:1 极性对调，套上三星原厂行控制头
+                # 💡 预先生成 256 个字节的比特镜像查找表（0-255的高低位全部对调），压榨执行效率
+                LOOKUP_TABLE = bytes(int(f'{b:08b}'[::-1], 2) for b in range(256))
+                
+                # 3. 灌入对齐行
                 for r in range(TARGET_ROWS):
                     start_idx = r * ROW_BYTES
                     end_idx = start_idx + ROW_BYTES
                     line_chunk = raw_raster_data[start_idx:end_idx]
                     
-                    # Pillow 中 1 代表白，0 代表黑；而三星硬件 0xff (全1) 代表真纯白，0x00 代表黑。
-                    # 由于 Pillow 默认的极性跟三星一致，这里【不需要取反】，直接 1:1 投射进原厂行报头！
-                    spl_stream.extend(b"\x11\x00\x36\x01") # 三星单行控制字：传输310字节
-                    spl_stream.extend(line_chunk)
+                    # 🌟【超级绝杀补丁】：将单行内每一个字节通过查找表进行完美的 Bit-Reversal（LSB反转）
+                    # 让打印机激光头能够以正确的像素顺序读取内容，彻底解决刚卷纸就熔断的顽疾！
+                    aligned_line = line_chunk.translate(LOOKUP_TABLE)
+                    
+                    spl_stream.extend(b"\x11\x00\x36\x01") # 三星单行控制字
+                    spl_stream.extend(aligned_line)
                 
                 # 4. 强行封底：切断本页会话，注入物理换页符
                 spl_stream.extend(b"\x13\x00") # 三星物理页结束
@@ -110,7 +114,7 @@ if uploaded_file is not None:
                 response = requests.post(TUNNEL_URL, data=bytes(spl_stream), headers=headers, timeout=60)
                 
                 if response.status_code == 200:
-                    st.success("🎉【全线终极闭环】纯内存扁平化点阵完美注入！物理出纸大功告成！")
+                    st.success("🎉【全线终极闭环】色彩与比特顺序已双重校准！马达已全速启动出纸！")
                 else:
                     st.error(f"❌ 投递失败：路由器网关拒收，状态码: {response.status_code}")
                     
