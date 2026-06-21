@@ -7,7 +7,7 @@ import mammoth
 from weasyprint import HTML
 
 # ================= 终极配置区 =================
-TUNNEL_URL = "https://dyj.yyjc.dpdns.org/cgi-bin/print" # 你的路由器 Tunnel 穿透入口
+TUNNEL_URL = "https://print.666.dpdns.org/cgi-bin/print" # 你的路由器 Tunnel 穿透入口
 # =============================================
 
 st.set_page_config(page_title="🖨️ 极客云打印大脑", page_icon="🖨️", layout="centered")
