@@ -4,5 +4,3 @@ printer-driver-splix
 fonts-wqy-zenhei
 fonts-wqy-microhei
 libpango1.0-dev
-libpango-1.0-0
-libpangocairo-1.0-0
