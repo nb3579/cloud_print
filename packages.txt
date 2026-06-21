@@ -4,3 +4,7 @@ printer-driver-splix
 fonts-wqy-zenhei
 fonts-wqy-microhei
 libpango1.0-dev
+libreoffice
+cups-filters
+ghostscript
+
