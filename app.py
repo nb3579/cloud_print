@@ -31,7 +31,7 @@ if uploaded_file is not None:
     if st.button("🚀 批准高压编译并投递打印", type="primary"):
         with st.spinner("⚡ 正在启动云端转码流水线..."):
             try:
-                # 0. 落地上传的文件流
+                # 0. 固定上传的文件流到临时区
                 with open(unique_in, "wb") as f:
                     f.write(uploaded_file.getbuffer())
                 
@@ -62,32 +62,51 @@ if uploaded_file is not None:
                 else:
                     os.rename(unique_in, unique_pdf)
                     
-                # ─── 环节 B：PDF -> 三星 SPL 机器码 (真·原厂 GDI 硬件特征流编译) ───
-                st.text("⏳ 2/3 正在利用云端 Ghostscript 矩阵编译真机原厂 GDI 压缩特征流...")
+                # ─── 环节 B：PDF -> 三星 SPL 机器码 (真·原厂三星 GDI 驱动设备编译) ───
+                st.text("⏳ 2/3 正在利用云端 Ghostscript 三星原厂 GDI 矩阵编译特征流...")
                 
-                # -sDEVICE=pxlmono：这是 Linux 体系下通杀绝大多数老三星、施乐 GDI 固件的通用黑白激光切片器
-                # 它吐出的数据自带高保真 RLE 压缩，体积控制在 1MB 左右，网络传输极快
+                # 优先调用专门针对老三星/施乐硬件定制的 samsunggdi 设备
                 gs_cmd = [
                     "gs", "-q", "-dBATCH", "-dNOPAUSE", "-dSAFER",
-                    "-sDEVICE=pxlmono",       
-                    "-r600",                 # 维持 600 DPI 激光物理高精度
+                    "-sDEVICE=samsunggdi",    
+                    "-r600",                 # 维持 600 DPI 激光高精度
                     f"-sOutputFile={unique_prn}",
                     unique_pdf
                 ]
                 
                 res = subprocess.run(gs_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
                 
-                # 兼容性备用安全绳：如果容器层遇到 pxlmono 缺失，自动无缝切换到经典黑白激光直刷器
+                # 兼容性备用安全绳：如果云端环境裁剪了老版驱动，无缝切回已被打印机校验通过的 pxlmono 设备
                 if res.returncode != 0:
                     st.warning("⚠️ 触发云端高阶兼容性矩阵切换...")
-                    gs_cmd[4] = "-sDEVICE=laserjet"
-                    res = subprocess.run(gs_cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                    gs_cmd[4] = "-sDEVICE=pxlmono"
+                    subprocess.run(gs_cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
                 
-                # ─── 环节 C：Cloudflare Tunnel 秒级安全透传 ───
+                # ─── 环节 C：校准并注入真机尾部强行抽纸控制字 ───
+                with open(unique_prn, "rb") as prn_file:
+                    raw_prn_data = prn_file.read()
+
+                final_payload = bytearray()
+                # 1. 承接原厂生成的完美二进制位图特征
+                final_payload.extend(raw_prn_data)
+                
+                # 2. 补齐强行出纸与作业关闭补丁（解决“响一声不吐纸”的硬件挂起硬伤）
+                if not raw_prn_data.endswith(b"\x1b%-12345X"):
+                    st.text("🔧 正在向流尾部追加硬件级推力吐纸控制字...")
+                    final_payload.extend(b"\x1b&l0H")  # PCL 通用强行进纸
+                    final_payload.extend(b"\x0c")      # 真·Form Feed 强行吐纸
+                    final_payload.extend(b"\x1b%-12345X@PJL EOJ\r\n\x1b%-12345X") # 优雅切断任务
+                else:
+                    # 如果原厂流本身带尾巴，我们确保追加一发 \x0c 强制冲刷硬件缓存区
+                    final_payload.extend(b"\x0c")
+
+                with open(unique_prn, "wb") as f:
+                    f.write(bytes(final_payload))
+                
+                # ─── 环节 D：Cloudflare Tunnel 秒级安全透传 ───
                 prn_size = os.path.getsize(unique_prn)
-                st.text(f"🚀 3/3 编译成功！真机特征流体积: {prn_size / 1024:.2f} KB。正在投递...")
+                st.text(f"🚀 3/3 编译成功！校准特征流体积: {prn_size / 1024:.2f} KB。正在投递...")
                 
-                # 核心：由于 GS 原厂设备生成的文件内部已完美包含 PJL 换行控制字，这里直接 1:1 透传原始流
                 with open(unique_prn, "rb") as prn_file:
                     binary_data = prn_file.read()
                 
@@ -95,7 +114,7 @@ if uploaded_file is not None:
                 response = requests.post(TUNNEL_URL, data=binary_data, headers=headers, timeout=60)
                 
                 if response.status_code == 200:
-                    st.success("🎉【全线打通】原厂点阵指令流已完美送达，家里打印机开始同步响动出纸！")
+                    st.success("🎉【全线通关】数据已触发硬件强制物理抽纸，请在打印机前接纸！")
                 else:
                     st.error(f"❌ 投递失败：路由器网关拒收，状态码: {response.status_code}，响应: {response.text}")
                     
