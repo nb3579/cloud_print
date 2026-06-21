@@ -3,3 +3,5 @@ poppler-utils
 printer-driver-splix
 fonts-wqy-zenhei
 fonts-wqy-microhei
+libpango
+libpangocairo
