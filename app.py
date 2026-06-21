@@ -113,7 +113,7 @@ if uploaded_file is not None:
                     
                 # 4. 【补行特效】如果行数不够 A4 标准，用纯白点阵(0xff)强行把残行顶满
                 if total_rows < TARGET_ROWS:
-                    blank_line = b"\xff" * ROW_BYTES  
+                    blank_line = b"\x00" * ROW_BYTES  
                     for _ in range(TARGET_ROWS - total_rows):
                         spl_stream.extend(b"\x11\x00\x36\x01")
                         spl_stream.extend(blank_line)
