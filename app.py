@@ -66,11 +66,10 @@ if uploaded_file is not None:
                 # ─── 环节 B：PDF -> 1-bit PBM 裸点阵切片 ───
                 st.text("⏳ 2/3 正在生成 A4 300DPI 绝对对齐位图矩阵...")
                 
-                # A4 在 300 DPI 下的标准像素宽为 2480 点 (刚好等于 310 字节)
                 gs_cmd = [
                     "gs", "-q", "-dBATCH", "-dNOPAUSE", "-dSAFER",
-                    "-sDEVICE=pbmraw",       # 提取最纯粹的 1-bit 裸位图点阵 (P4 格式)
-                    "-r300",                 # 严丝合缝扣死 300 DPI 
+                    "-sDEVICE=pbmraw",       
+                    "-r300",                 
                     f"-sOutputFile={unique_raw}",
                     unique_pdf
                 ]
@@ -78,8 +77,8 @@ if uploaded_file is not None:
                 if res.returncode != 0:
                     raise Exception(f"Ghostscript 矩阵切片失败: {res.stderr}")
                 
-                # ─── 环节 C：【真·原厂 SPL v1 满页高度对齐封装】 ───
-                st.text("🔧 正在进行真机 3508 行满页像素对齐与尾部强推逻辑...")
+                # ─── 环节 C：【真·原厂 SPL v1 满页高度对齐与极性对调封装】 ───
+                st.text("🔧 正在进行真机极性对调、3508 行满页像素对齐封装...")
                 
                 with open(unique_raw, "rb") as f:
                     pbm_bytes = f.read()
@@ -98,22 +97,26 @@ if uploaded_file is not None:
                 spl_stream.extend(b"\x12\x00\x01\x04\x00\x00") 
                 
                 ROW_BYTES = 310
-                TARGET_ROWS = 3508  # 300 DPI 下 A4 纸张绝对硬标准的总行数
+                TARGET_ROWS = 3508  
                 
                 total_rows = len(raw_raster_data) // ROW_BYTES
                 
-                # 3. 灌入 GS 生成的真实点阵行
+                # 3. 🌟核心改进：对 GS 输出的真实点阵进行全文字节按位取反！
+                # 翻转 PBM 的 0 和 1，让试卷白纸真正变成打印机眼里的白纸，彻底解除满幅纯黑固件防呆锁！
                 for r in range(total_rows):
                     start_idx = r * ROW_BYTES
                     end_idx = start_idx + ROW_BYTES
                     line_chunk = raw_raster_data[start_idx:end_idx]
                     
-                    spl_stream.extend(b"\x11\x00\x36\x01")
-                    spl_stream.extend(line_chunk)
+                    # 使用 Python 快速进行按位取反操作
+                    inverted_line = bytes(~b & 0xff for b in line_chunk)
                     
-                # 4. 【补行特效】如果行数不够 A4 标准，用纯白点阵(0xff)强行把残行顶满
+                    spl_stream.extend(b"\x11\x00\x36\x01")
+                    spl_stream.extend(inverted_line)
+                    
+                # 4. 🌟【补行特效】因为取反后 0xff（全1）才代表真纯白，所以我们把补齐帧修正回 b"\xff"
                 if total_rows < TARGET_ROWS:
-                    blank_line = b"\x00" * ROW_BYTES  
+                    blank_line = b"\xff" * ROW_BYTES  
                     for _ in range(TARGET_ROWS - total_rows):
                         spl_stream.extend(b"\x11\x00\x36\x01")
                         spl_stream.extend(blank_line)
@@ -134,7 +137,7 @@ if uploaded_file is not None:
                 response = requests.post(TUNNEL_URL, data=bytes(spl_stream), headers=headers, timeout=60)
                 
                 if response.status_code == 200:
-                    st.success("🎉【神级闭环突破】真·SPL v1 点阵流已完美注入！老机器检测到合法的 310 对齐，开始大口吐纸！")
+                    st.success("🎉【全线通关】色彩极性对调完成！打印机开始连续抽纸出纸！")
                 else:
                     st.error(f"❌ 投递失败：路由器网关拒收，状态码: {response.status_code}")
                     
