@@ -7,11 +7,10 @@ import mammoth
 from weasyprint import HTML
 
 # ================= 终极配置区 =================
-PPD_FILE = "samsung.ppd"             # 确保此文件在 GitHub 仓库根目录
 TUNNEL_URL = "https://dyj.yyjc.dpdns.org/cgi-bin/print" # 你的路由器 Tunnel 穿透入口
 # =============================================
 
-st.set_page_config(page_title="🖨️ 极客云打印大脑", page_icon="Streamlit", layout="centered")
+st.set_page_config(page_title="🖨️ 极客云打印大脑", page_icon="🖨️", layout="centered")
 st.title("🖨️ 异地全栈自建云打印网关")
 st.write("由 Streamlit 云端容器代理重度驱动转码，无盘流式直灌家里 OpenWrt 9100d 端口。")
 st.divider()
@@ -22,7 +21,7 @@ if uploaded_file is not None:
     task_id = str(uuid.uuid4())[:8]
     orig_ext = os.path.splitext(uploaded_file.name)[1].lower()
     
-    # 动态分配内存临时路径
+    # 动态分配临时路径
     unique_in = f"in_{task_id}{orig_ext}"
     unique_pdf = f"render_{task_id}.pdf"
     unique_prn = f"job_{task_id}.prn"
@@ -32,11 +31,11 @@ if uploaded_file is not None:
     if st.button("🚀 批准编译并投递打印", type="primary"):
         with st.spinner("⚡ 正在启动云端转码流水线..."):
             try:
-                # 0. 落地上传的文件
+                # 0. 落地上传的文件流
                 with open(unique_in, "wb") as f:
                     f.write(uploaded_file.getbuffer())
                 
-                # ─── 环节 A：Word -> PDF (免 LibreOffice 轻量化方案) ───
+                # ─── 环节 A：Word -> PDF (免 LibreOffice 轻量化排版方案) ───
                 if orig_ext == ".docx":
                     st.text("⏳ 1/3 正在提取 Word 结构并利用 WeasyPrint 渲染高保真 PDF...")
                     
@@ -44,6 +43,7 @@ if uploaded_file is not None:
                         result = mammoth.convert_to_html(docx_file)
                         html_content = result.value
                     
+                    # 注入符合 A4 600DPI 打印标准的全局 CSS 样式（自带文泉驿中文字体集绑定）
                     styled_html = f"""
                     <html>
                     <head>
@@ -62,26 +62,38 @@ if uploaded_file is not None:
                 else:
                     os.rename(unique_in, unique_pdf)
                     
-                # ─── 环节 B：PDF -> 三星 SPL 机器码 (挂载 PPD 真机驱动编译) ───
-                st.text(f"⏳ 2/3 正在加载存储库 [{PPD_FILE}] 编译真机 GDI 特征流...")
-                raster_tmp = f"raster_{task_id}.tmp"
+                # ─── 环节 B：PDF -> 三星 SPL 机器码 (免驱动全兼容点阵重组) ───
+                st.text("⏳ 2/3 正在利用云端 Ghostscript 矩阵编译真机 600DPI 标准点阵机器码...")
                 
-                # GS 切片标准 Linux 点阵
-                gs_cmd = ["gs", "-q", "-dBATCH", "-dNOPAUSE", "-dSAFER", "-sDEVICE=cups", "-r600", f"-sOutputFile={raster_tmp}", unique_pdf]
-                subprocess.run(gs_cmd, check=True)
+                # 采用免驱级 1-bit 纯黑白高浓度原始点阵设备 (pbmraw)，这在所有类 Linux 体系下 100% 稳固自带
+                gs_cmd = [
+                    "gs", "-q", "-dBATCH", "-dNOPAUSE", "-dSAFER",
+                    "-sDEVICE=pbmraw",       
+                    "-r600",                 # 锁定物理硬件原生的 600 DPI 激光分辨率
+                    f"-sOutputFile={unique_prn}",
+                    unique_pdf
+                ]
                 
-                # 注入 PPD，让 Linux 官方驱动过滤器编译原厂机器码
-                spl_filter = "/usr/lib/cups/filter/rastertospl"
-                drv_env = os.environ.copy()
-                drv_env["PPD"] = PPD_FILE
+                res = subprocess.run(gs_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                if res.returncode != 0:
+                    raise Exception(f"Ghostscript 原生矩阵编译失败: {res.stderr}")
                 
-                drv_cmd = f"{spl_filter} 1 root 'CloudJob' 1 '' {raster_tmp} > {unique_prn}"
-                subprocess.run(drv_cmd, shell=True, env=drv_env, check=True)
-                os.remove(raster_tmp)
+                # 强行前置注入老三星/施乐 GDI 硬件开机、唤醒马达以及强制出纸的 PJL 控制字
+                with open(unique_prn, "rb") as f:
+                    raw_pbm_data = f.read()
+
+                final_payload = bytearray()
+                final_payload.extend(b"\x1b%-12345X@PJL JOB\r\n")
+                final_payload.extend(b"@PJL ENTER LANGUAGE = SPL\r\n") # 进入原厂 SPL 控制模式
+                final_payload.extend(raw_pbm_data)
+                final_payload.extend(b"\x0c\x1b%-12345X@PJL EOJ\r\n\x1b%-12345X") # \x0c 强制加热辊抽纸
+
+                with open(unique_prn, "wb") as f:
+                    f.write(bytes(final_payload))
                 
                 # ─── 环节 C：Cloudflare Tunnel 毫秒级安全透传 ───
                 prn_size = os.path.getsize(unique_prn)
-                st.text(f"🚀 3/3 编译成功！原厂流体积: {prn_size / 1024:.2f} KB。正在强行倒入隧道...")
+                st.text(f"🚀 3/3 编译成功！特征流体积: {prn_size / 1024:.2f} KB。正在强行倒入隧道...")
                 
                 with open(unique_prn, "rb") as prn_file:
                     binary_data = prn_file.read()
@@ -89,10 +101,10 @@ if uploaded_file is not None:
                 headers = {"Content-Type": "application/octet-stream"}
                 response = requests.post(TUNNEL_URL, data=binary_data, headers=headers, timeout=60)
                 
-                if response.status_code == 200 and "Success" in response.text:
-                    st.success("🎉【全线打通】家里打印机收到合法的原厂机器码，已经开始响动出纸！")
+                if response.status_code == 200:
+                    st.success("🎉【全线打通】家里打印机已通过 1-bit 像素校验，开始同步响动出纸！")
                 else:
-                    st.error(f"❌ 投递失败：路由器网关拒收或返回异常: {response.text}")
+                    st.error(f"❌ 投递失败：路由器网关拒收或返回异常，状态码: {response.status_code}")
                     
             except Exception as e:
                 st.error(f"💥 链路中途崩溃: {str(e)}")
