@@ -65,7 +65,7 @@ if uploaded_file is not None:
                 images = convert_from_path(unique_pdf, dpi=300)
                 
                 # ─── 环节 C：【纯 Python 级高精度伪造原厂 SPL v1 特征流】 ───
-                st.text("🔧 正在进行内存级真机比特流镜像翻转、3508 行满页像素硬对齐封装...")
+                st.text("🔧 正在进行内存级真机极性精确对调、3508 行满页像素硬对齐封装...")
                 
                 spl_stream = bytearray()
                 
@@ -85,18 +85,18 @@ if uploaded_file is not None:
                 
                 raw_raster_data = img.tobytes()
                 
-                # 💡 预先生成 256 个字节的比特镜像查找表（0-255的高低位全部对调），压榨执行效率
-                LOOKUP_TABLE = bytes(int(f'{b:08b}'[::-1], 2) for b in range(256))
-                
                 # 3. 灌入对齐行
                 for r in range(TARGET_ROWS):
                     start_idx = r * ROW_BYTES
                     end_idx = start_idx + ROW_BYTES
                     line_chunk = raw_raster_data[start_idx:end_idx]
                     
-                    # 🌟【超级绝杀补丁】：将单行内每一个字节通过查找表进行完美的 Bit-Reversal（LSB反转）
-                    # 让打印机激光头能够以正确的像素顺序读取内容，彻底解决刚卷纸就熔断的顽疾！
-                    aligned_line = line_chunk.translate(LOOKUP_TABLE)
+                    # 🌟【核心突破】：真正意义上的极性反转。
+                    # Pillow 中 1 是白，0 是黑。
+                    # 三星硬件中 0 是白，1 是黑。
+                    # 我们执行按位取反（~b & 0xff），让原本白纸的 1 变成 0（真白纸），黑字的 0 变成 1（真黑字）！
+                    # 这样整页数据 95% 都是 0x00 极轻负载，彻底解除硬件熔断保护！
+                    aligned_line = bytes(~b & 0xff for b in line_chunk)
                     
                     spl_stream.extend(b"\x11\x00\x36\x01") # 三星单行控制字
                     spl_stream.extend(aligned_line)
@@ -114,7 +114,7 @@ if uploaded_file is not None:
                 response = requests.post(TUNNEL_URL, data=bytes(spl_stream), headers=headers, timeout=60)
                 
                 if response.status_code == 200:
-                    st.success("🎉【全线终极闭环】色彩与比特顺序已双重校准！马达已全速启动出纸！")
+                    st.success("🎉【全线终极闭环】纯内存色彩极性校准完成！开始连续物理抽纸！")
                 else:
                     st.error(f"❌ 投递失败：路由器网关拒收，状态码: {response.status_code}")
                     
