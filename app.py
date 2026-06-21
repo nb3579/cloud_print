@@ -36,7 +36,7 @@ if uploaded_file is not None:
                 with open(unique_in, "wb") as f:
                     f.write(uploaded_file.getbuffer())
                 
-                # ─── 环节 A：Word -> PDF (免 LibreOffice 轻量化排版方案) ───
+                # ─── 环节 A：Word -> PDF ───
                 if orig_ext == ".docx":
                     st.text("⏳ 1/3 正在提取 Word 结构并利用 WeasyPrint 渲染高保真 PDF...")
                     
@@ -63,58 +63,68 @@ if uploaded_file is not None:
                 else:
                     os.rename(unique_in, unique_pdf)
                     
-                # ─── 环节 B：PDF -> 真·三星原厂 SPL 机器码 (PPD 深度绑定编译) ───
+                # ─── 环节 B：PDF -> 真·三星原厂 SPL 机器码 (含 PPD 动态版本伪装) ───
                 st.text("⏳ 2/3 正在激活云端 PPD 驱动引擎编译真机机器码...")
                 raster_tmp = f"raster_{task_id}.tmp"
+                spoofed_ppd = f"spoofed_{task_id}.ppd"
+                
+                # 💡 核心改进：读取原始 samsung.ppd，动态伪装内部版本号以适配容器中的 SpliX 2.0.0
+                if not os.path.exists(PPD_FILE):
+                    raise Exception(f"💥 仓库根目录下未找到 {PPD_FILE} 文件！")
+                    
+                with open(PPD_FILE, "r", encoding="utf-8", errors="ignore") as f:
+                    ppd_content = f.read()
+                
+                # 全局欺骗替换：将可能声明的 1.1 / 1.0 版本号暴力升级为 2.0.0
+                spoofed_content = ppd_content.replace("1.1", "2.0.0").replace("1.0", "2.0.0")
+                with open(spoofed_ppd, "w", encoding="utf-8") as f:
+                    f.write(spoofed_content)
                 
                 # 1. 寻找 Linux 系统中 rastertospl 编译器的真实物理藏身路径
                 spl_filter_path = None
                 possible_paths = [
                     "/usr/lib/cups/filter/rastertospl",
-                    "/usr/lib/cups/filter/rastertoqpdl", # 三星部分开源替代名称
+                    "/usr/lib/cups/filter/rastertoqpdl",
                     "/usr/libexec/cups/filter/rastertospl"
                 ]
                 
-                # 如果标准路径找不到，进行全局深挖
                 for p in possible_paths:
                     if os.path.exists(p):
                         spl_filter_path = p
                         break
                         
                 if not spl_filter_path:
-                    # 全局大搜寻寻找 splix 编译核心
                     find_res = subprocess.run(["find", "/usr", "-name", "rastertospl"], stdout=subprocess.PIPE, text=True)
                     found_paths = find_res.stdout.strip().split('\n')
                     if found_paths and os.path.exists(found_paths[0]):
                         spl_filter_path = found_paths[0]
                 
                 if not spl_filter_path or not os.path.exists(spl_filter_path):
-                    raise Exception("💥 云端环境未找到三星 splix 驱动组件，请检查 packages.txt 是否包含 printer-driver-splix！")
+                    raise Exception("💥 云端环境未找到三星 splix 驱动组件！")
                 
-                # 2. 先用 Ghostscript 把 PDF 还原成 Linux 统一的标准点阵位图格式 (cups-raster)
-                # 这一步使用 300 DPI 确保体积小巧且绝不超时
+                # 2. 先用 Ghostscript 把 PDF 还原成 Linux 统一的标准点编位图格式 (cups-raster)
                 gs_cmd = [
                     "gs", "-q", "-dBATCH", "-dNOPAUSE", "-dSAFER",
-                    "-sDEVICE=cups",     # 必须是标准 Linux 打印机通用位图设备
+                    "-sDEVICE=cups",     
                     "-r300",             # 优化为 300 DPI
                     f"-sOutputFile={raster_tmp}",
                     unique_pdf
                 ]
                 subprocess.run(gs_cmd, check=True)
                 
-                # 3. 核心：挂载本地存储的 samsung.ppd 实施真机转码
+                # 3. 模拟 Linux 标准 CUPS 管道执行真机驱动过滤编译 (使用伪装后的 PPD)
                 drv_env = os.environ.copy()
-                drv_env["PPD"] = PPD_FILE  # 强行注入 PPD 变量说明书
+                drv_env["PPD"] = spoofed_ppd  
                 
-                # 模拟 Linux 标准 CUPS 管道执行真机驱动过滤编译
                 drv_cmd = f"{spl_filter_path} 1 root 'CloudJob' 1 '' {raster_tmp} > {unique_prn}"
                 res = subprocess.run(drv_cmd, shell=True, env=drv_env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
                 
                 if res.returncode != 0:
                     raise Exception(f"rastertospl 编译机器码失败: {res.stderr}")
                     
-                if os.path.exists(raster_tmp):
-                    os.remove(raster_tmp)
+                # 清理本轮点阵缓存
+                if os.path.exists(raster_tmp): os.remove(raster_tmp)
+                if os.path.exists(spoofed_ppd): os.remove(spoofed_ppd)
                 
                 # ─── 环节 C：Cloudflare Tunnel 秒级安全透传 ───
                 prn_size = os.path.getsize(unique_prn)
@@ -127,14 +137,14 @@ if uploaded_file is not None:
                 response = requests.post(TUNNEL_URL, data=binary_data, headers=headers, timeout=60)
                 
                 if response.status_code == 200:
-                    st.success("🎉【全线彻底打通】真·三星 SPL 原厂指令流已送达硬件，打印机开始响动出纸！")
+                    st.success("🎉【全线彻底通关】真·三星 SPL 2.0 完美机器码已灌入硬件，开始响动吐纸！")
                 else:
                     st.error(f"❌ 投递失败：路由器网关拒收，状态码: {response.status_code}，响应: {response.text}")
                     
             except Exception as e:
                 st.error(f"💥 链路中途崩溃: {str(e)}")
             finally:
-                # 彻底清理云端临时文件
-                for path in [unique_in, unique_pdf, unique_prn, f"raster_{task_id}.tmp"]:
+                # 清理垃圾，保持容器绝对纯净
+                for path in [unique_in, unique_pdf, unique_prn, f"raster_{task_id}.tmp", f"spoofed_{task_id}.ppd"]:
                     if os.path.exists(path):
                         os.remove(path)
